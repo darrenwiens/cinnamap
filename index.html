@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cinnamap — Cinnamon Bun Review Map</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS (Free OpenStreetMap tiles, no API key required) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Google Fonts: Fraunces for warm bakery headers & Plus Jakarta Sans for clean UI -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['Fraunces', 'serif'],
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                    },
+                    colors: {
+                        cream: {
+                            50: '#FDFBF7',
+                            100: '#FAF5EB',
+                            200: '#F3E7D3',
+                            300: '#E8D3B5',
+                        },
+                        cinnamon: {
+                            400: '#C87D4B',
+                            500: '#B06233',
+                            600: '#8F4922',
+                            700: '#6E3517',
+                            800: '#4A220E',
+                            900: '#2E1407',
+                        },
+                        glaze: '#FFFDF9',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom scrollbar for warm bakery aesthetic */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #FAF5EB;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #D9BFA0;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #B06233;
+        }
+
+        /* Leaflet Customizations */
+        .leaflet-container {
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            background-color: #F3E7D3 !important;
+        }
+        .leaflet-popup-content-wrapper {
+            background: #FFFDF9;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(74, 34, 14, 0.18), 0 4px 10px -2px rgba(74, 34, 14, 0.08);
+            border: 1px solid #F3E7D3;
+            padding: 0;
+            overflow: hidden;
+        }
+        .leaflet-popup-content {
+            margin: 0 !important;
+            width: 270px !important;
+        }
+        .leaflet-popup-tip {
+            background: #FFFDF9;
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: #8F4922;
+            padding: 8px 10px 0 0;
+            font-size: 18px;
+        }
+
+        /* Custom Bun Marker Pin */
+        .bun-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #C87D4B 0%, #8F4922 100%);
+            border: 3px solid #FFFDF9;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            box-shadow: 0 6px 14px rgba(46, 20, 7, 0.35);
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .bun-marker:hover, .bun-marker.active {
+            transform: rotate(-45deg) scale(1.18);
+            background: linear-gradient(135deg, #D98A54 0%, #6E3517 100%);
+            z-index: 1000 !important;
+        }
+        .bun-marker-inner {
+            transform: rotate(45deg);
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        /* Temp Drop Pin Animation */
+        @keyframes bouncePin {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+        .temp-pin-icon {
+            animation: bouncePin 1.2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-cream-100 text-cinnamon-900 font-sans antialiased h-screen w-screen overflow-hidden flex flex-col md:flex-row">
+
+    <!-- Toast Notification Banner (No alert() allowed) -->
+    <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[2000] pointer-events-none opacity-0 transition-all duration-300 transform -translate-y-2">
+        <div id="toast-inner" class="bg-cinnamon-800 text-cream-50 px-5 py-2.5 rounded-full shadow-xl border border-cinnamon-600 text-sm font-medium flex items-center gap-2">
+            <span id="toast-icon">🥐</span>
+            <span id="toast-message">Notification message</span>
+        </div>
+    </div>
+
+    <!-- Map Click Instruction Banner -->
+    <div id="drop-mode-banner" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-[1500] bg-cinnamon-700 text-cream-50 px-5 py-3 rounded-2xl shadow-2xl border-2 border-cream-200 flex items-center gap-3 max-w-[92vw]">
+        <span class="text-xl animate-pulse">📍</span>
+        <div class="text-sm">
+            <p class="font-semibold">Click anywhere on the map to place your bun review!</p>
+            <p class="text-cream-200 text-xs">Zoom in to find the exact bakery storefront.</p>
+        </div>
+        <button id="cancel-drop-mode" class="ml-2 bg-cinnamon-900/60 hover:bg-cinnamon-900 text-cream-100 px-3 py-1.5 rounded-xl text-xs font-semibold transition">
+            Cancel
+        </button>
+    </div>
+
+    <!-- SIDEBAR / DRAWER -->
+    <aside id="sidebar" class="order-2 md:order-1 w-full md:w-[400px] lg:w-[430px] h-[52vh] md:h-full bg-cream-50 border-t md:border-t-0 md:border-r border-cream-300 flex flex-col z-20 shadow-xl">
+        
+        <!-- Header -->
+        <div class="p-4 sm:p-5 bg-gradient-to-br from-cream-100 to-cream-200/70 border-b border-cream-300 flex-shrink-0">
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-cinnamon-500 to-cinnamon-700 text-cream-50 flex items-center justify-center shadow-md text-xl">
+                        🍥
+                    </div>
+                    <div>
+                        <h1 class="font-serif text-xl sm:text-2xl font-bold text-cinnamon-900 tracking-tight leading-none">Cinnamap</h1>
+                        <p class="text-xs text-cinnamon-700 font-medium mt-1">Community Cinnamon Bun Atlas</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5">
+                    <button id="btn-sheet-setup" title="Configure Google Sheets Backend" class="bg-cream-50 hover:bg-cream-200 text-cinnamon-800 border border-cream-300 font-semibold text-xs px-2.5 py-2.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer">
+                        <span id="header-conn-dot" class="w-2 h-2 rounded-full bg-amber-500"></span>
+                        <span class="hidden sm:inline" id="header-conn-text">Connect Sheet</span>
+                        <span class="sm:hidden">Sheet</span>
+                    </button>
+
+                    <button id="btn-add-review" class="bg-cinnamon-600 hover:bg-cinnamon-700 active:scale-95 text-cream-50 font-semibold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl shadow-md hover:shadow-lg transition flex items-center gap-1.5 cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                        <span>Add Review</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Controls: Filter & Sort -->
+            <div class="mt-3.5 grid grid-cols-2 gap-2">
+                <div>
+                    <label for="filter-frosting" class="block text-[11px] font-semibold uppercase tracking-wider text-cinnamon-700 mb-1">Frosting</label>
+                    <select id="filter-frosting" class="w-full bg-glaze border border-cream-300 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm text-cinnamon-900 font-medium focus:outline-none focus:ring-2 focus:ring-cinnamon-400">
+                        <option value="all">All Frostings</option>
+                        <option value="Cream Cheese">Cream Cheese</option>
+                        <option value="Classic Glaze">Classic Glaze</option>
+                        <option value="Brown Butter">Brown Butter</option>
+                        <option value="Maple">Maple</option>
+                        <option value="No Frosting">No Frosting</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="sort-reviews" class="block text-[11px] font-semibold uppercase tracking-wider text-cinnamon-700 mb-1">Sort By</label>
+                    <select id="sort-reviews" class="w-full bg-glaze border border-cream-300 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm text-cinnamon-900 font-medium focus:outline-none focus:ring-2 focus:ring-cinnamon-400">
+                        <option value="rating">Highest Rated</option>
+                        <option value="recent">Most Recent</option>
+                        <option value="gooey">Most Gooey</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Quick Location Jump Pills -->
+            <div class="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
+                <span class="text-cinnamon-600 font-medium shrink-0">Jump:</span>
+                <button data-lat="53.9171" data-lng="-122.7497" data-zoom="13" class="jump-btn shrink-0 bg-cream-50 hover:bg-cinnamon-100 text-cinnamon-800 border border-cream-300 px-2.5 py-1 rounded-full font-medium transition">
+                    🌲 Prince George, BC
+                </button>
+                <button data-lat="49.2827" data-lng="-123.1207" data-zoom="12" class="jump-btn shrink-0 bg-cream-50 hover:bg-cinnamon-100 text-cinnamon-800 border border-cream-300 px-2.5 py-1 rounded-full font-medium transition">
+                    🌊 Vancouver
+                </button>
+                <button data-lat="51.0447" data-lng="-114.0719" data-zoom="12" class="jump-btn shrink-0 bg-cream-50 hover:bg-cinnamon-100 text-cinnamon-800 border border-cream-300 px-2.5 py-1 rounded-full font-medium transition">
+                    🏔️ Calgary
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="px-4 py-2 bg-cream-100/80 border-b border-cream-200 flex items-center justify-between text-xs text-cinnamon-700 flex-shrink-0">
+            <span id="review-count" class="font-semibold">Loading reviews...</span>
+            <button id="sync-status" class="flex items-center gap-1.5 text-[11px] hover:underline cursor-pointer" title="Click to configure or refresh Google Sheet">
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span>Demo Mode</span>
+            </button>
+        </div>
+
+        <!-- Reviews List -->
+        <div id="reviews-list" class="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3">
+            <!-- Review Cards injected dynamically -->
+        </div>
+    </aside>
+
+    <!-- INTERACTIVE MAP AREA -->
+    <main class="order-1 md:order-2 flex-1 h-[48vh] md:h-full relative z-10">
+        <div id="map" class="w-full h-full"></div>
+
+        <!-- Floating Tip Pill on Map -->
+        <div class="hidden sm:flex items-center gap-2 absolute bottom-5 left-5 z-[1000] bg-glaze/95 backdrop-blur-sm border border-cream-300 px-3.5 py-2 rounded-2xl shadow-lg text-xs text-cinnamon-800">
+            <span>💡</span>
+            <span>Click anywhere on the map to drop a pin and review a bun!</span>
+        </div>
+    </main>
+
+    <!-- ADD / EDIT REVIEW MODAL -->
+    <div id="review-modal" class="hidden fixed inset-0 z-[2500] bg-cinnamon-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-glaze w-full max-w-md rounded-3xl shadow-2xl border border-cream-300 overflow-hidden my-auto transform transition-all">
+            
+            <!-- Modal Header -->
+            <div class="bg-gradient-to-r from-cream-100 to-cream-200 px-6 py-4 border-b border-cream-300 flex items-center justify-between">
+                <div>
+                    <h2 class="font-serif text-xl font-bold text-cinnamon-900">Log a Cinnamon Bun</h2>
+                    <p id="modal-coords-label" class="text-xs text-cinnamon-700 mt-0.5">📍 Pin dropped on map</p>
+                </div>
+                <button id="close-modal" class="w-8 h-8 rounded-full bg-cream-50 hover:bg-cream-300/60 text-cinnamon-800 flex items-center justify-center transition">
+                    ✕
+                </button>
+                <!-- Bakery Name & Optional Reviewer Name -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-2">
+                        <label for="input-name" class="block text-xs font-bold uppercase tracking-wider text-cinnamon-800 mb-1">Bakery or Cafe Name *</label>
+                        <input type="text" id="input-name" required placeholder="e.g., Zoe's Java House, Ritual..."
+                            class="w-full bg-cream-50 border border-cream-300 rounded-xl px-3.5 py-2.5 text-sm text-cinnamon-900 placeholder-cinnamon-400 focus:outline-none focus:ring-2 focus:ring-cinnamon-500">
+                    </div>
+                    <div>
+                        <label for="input-reviewer" class="block text-xs font-bold uppercase tracking-wider text-cinnamon-800 mb-1">Your Name</label>
+                        <input type="text" id="input-reviewer" placeholder="Optional"
+                            class="w-full bg-cream-50 border border-cream-300 rounded-xl px-3.5 py-2.5 text-sm text-cinnamon-900 placeholder-cinnamon-400 focus:outline-none focus:ring-2 focus:ring-cinnamon-500">
+                    </div>
+                </div>
+
+                <!-- Overall Rating (1-5 Stars) -->
+    <!-- GOOGLE SHEETS SETUP MODAL -->
+    <div id="sheet-modal" class="hidden fixed inset-0 z-[2600] bg-cinnamon-900/55 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-glaze w-full max-w-xl rounded-3xl shadow-2xl border border-cream-300 overflow-hidden my-auto">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-cream-100 to-cream-200 px-6 py-4 border-b border-cream-300 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">📊</span>
+                    <div>
+                        <h2 class="font-serif text-xl font-bold text-cinnamon-900">Google Sheets Backend</h2>
+                        <p class="text-xs text-cinnamon-700">100% free, zero-login database that never pauses</p>
+                    </div>
+                </div>
+                <button id="close-sheet-modal" class="w-8 h-8 rounded-full bg-cream-50 hover:bg-cream-300/60 text-cinnamon-800 flex items-center justify-center transition cursor-pointer">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="p-6 space-y-5 max-h-[82vh] overflow-y-auto text-sm text-cinnamon-900">
+                <!-- Current Status Banner -->
+                <div id="sheet-modal-status" class="p-3.5 rounded-2xl bg-cream-100 border border-cream-300 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5">
+                        <span id="modal-status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
+                        <div>
+                            <p id="modal-status-title" class="font-bold text-xs text-cinnamon-900">Running in Demo Mode</p>
+                            <p id="modal-status-desc" class="text-[11px] text-cinnamon-700">Showing sample pins until a Google Apps Script URL is connected.</p>
+                        </div>
+                    </div>
+                    <button type="button" id="btn-refresh-sheet" class="hidden shrink-0 bg-cream-50 hover:bg-cream-200 text-cinnamon-800 border border-cream-300 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer">
+                        ↻ Sync Now
+                    </button>
+                </div>
+
+                <!-- Step 1: Copy Apps Script -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs font-bold uppercase tracking-wider text-cinnamon-800">Step 1: Paste into Google Sheets &rarr; Extensions &rarr; Apps Script</label>
+                        <button type="button" id="btn-copy-script" class="bg-cinnamon-100 hover:bg-cinnamon-200 text-cinnamon-900 font-semibold text-xs px-3 py-1 rounded-lg border border-cinnamon-300 transition flex items-center gap-1.5 cursor-pointer">
+                            <span>📋 Copy Script</span>
+                        </button>
+                    </div>
+                    <pre id="apps-script-code" class="bg-cinnamon-900 text-cream-100 text-[11px] leading-relaxed p-3.5 rounded-2xl overflow-x-auto font-mono select-all max-h-44">const SHEET_NAME = 'Reviews';
+
+function getOrCreateSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME);
+    sheet.appendRow(['id', 'name', 'reviewer', 'lat', 'lng', 'rating', 'frosting', 'gooeyness', 'price', 'notes', 'createdAt']);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function doGet() {
+  const sheet = getOrCreateSheet();
+  const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) {
+    return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
+  }
+  const headers = rows[0];
+  const data = rows.slice(1).filter(r => r[1]).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = row[i]);
+    obj.lat = Number(obj.lat);
+    obj.lng = Number(obj.lng);
+    obj.rating = Number(obj.rating);
+    obj.gooeyness = Number(obj.gooeyness);
+    obj.createdAt = Number(obj.createdAt) || Date.now();
+    return obj;
+  });
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  const sheet = getOrCreateSheet();
+  const payload = JSON.parse(e.postData.contents);
+  const id = payload.id || ('gs-' + new Date().getTime());
+  const createdAt = payload.createdAt || new Date().getTime();
+  sheet.appendRow([
+    id,
+    payload.name || '',
+    payload.reviewer || '',
+    Number(payload.lat),
+    Number(payload.lng),
+    Number(payload.rating) || 5,
+    payload.frosting || 'Cream Cheese',
+    Number(payload.gooeyness) || 4,
+    payload.price || '',
+    payload.notes || '',
+    createdAt
+  ]);
+  return ContentService.createTextOutput(JSON.stringify({ status: 'ok', id: id })).setMimeType(ContentService.MimeType.JSON);
+}</pre>
+                    <p class="text-[11px] text-cinnamon-700">
+                        Click <strong>Deploy &rarr; New deployment &rarr; Web app</strong>, set <em>Execute as:</em> <strong>Me</strong> and <em>Who has access:</em> <strong>Anyone</strong>, then copy the <code>/exec</code> URL.
+                    </p>
+                </div>
+
+                <!-- Step 2: Paste Web App URL -->
+                <div class="space-y-2">
+                    <label for="input-sheet-url" class="block text-xs font-bold uppercase tracking-wider text-cinnamon-800">Step 2: Paste your Google Apps Script Web App URL</label>
+                    <input type="url" id="input-sheet-url" placeholder="https://script.google.com/macros/s/.../exec"
+                        class="w-full bg-cream-50 border border-cream-300 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-cinnamon-900 placeholder-cinnamon-400 focus:outline-none focus:ring-2 focus:ring-cinnamon-500 font-mono">
+                </div>
+
+                <!-- Actions -->
+                <div class="pt-1 flex flex-wrap items-center justify-between gap-2">
+                    <button type="button" id="btn-disconnect-sheet" class="text-xs font-semibold text-cinnamon-600 hover:text-cinnamon-900 underline cursor-pointer">
+                        Reset to Demo Mode
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="btn-cancel-sheet" class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-cinnamon-700 hover:bg-cream-200 transition cursor-pointer">
+                            Close
+                        </button>
+                        <button type="button" id="btn-save-sheet-url" class="bg-cinnamon-600 hover:bg-cinnamon-700 text-cream-50 font-semibold text-xs sm:text-sm px-4 py-2 rounded-xl shadow-md hover:shadow-lg transition flex items-center gap-1.5 cursor-pointer">
+                            <span>Test &amp; Connect</span>
+                            <span>✓</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Logic & Google Sheets Persistence -->
+    <script>
+        // ==========================================
+        // 0. CONFIGURATION
+        // ==========================================
+        // Optional: Hardcode your deployed Google Apps Script Web App URL (/exec) here
+        // so every visitor connects automatically without needing browser setup:
+        const DEFAULT_GOOGLE_SHEET_API_URL = "https://script.google.com/a/macros/edynamics.com/s/AKfycbyQOojG9CGKTKddDZ3Db1LNNkqlYOkF66huQQgaOkE-2ydx6vaQaLLokUXptZKOrxa7/exec";
+
+        const STORAGE_KEY_URL = "cinnamap_google_sheet_url";
+        let GOOGLE_SHEET_API_URL = localStorage.getItem(STORAGE_KEY_URL) || DEFAULT_GOOGLE_SHEET_API_URL;
+
+        // ==========================================
+        // 1. SAMPLE DATA (Prince George, BC & Classics)
+        // ==========================================
+        const SAMPLE_REVIEWS = [
+            {
+                id: 'sample-pg-1',
+                name: "Zoe's Java House",
+                reviewer: "Local Regular",
+                lat: 53.9148,
+                lng: -122.7478,
+                rating: 5,
+                frosting: "Cream Cheese",
+                gooeyness: 5,
+                price: "$5.25",
+                notes: "A downtown Prince George institution! Warm, pillowy dough loaded with dark cinnamon swirl and a generous blanket of tangy cream cheese frosting.",
+                createdAt: Date.now() - 86400000 * 4
+            },
+            {
+                id: 'sample-pg-2',
+                name: "Ritual Coffee & Bakery",
+                reviewer: "Maya T.",
+                lat: 53.9175,
+                lng: -122.7452,
+                rating: 5,
+                frosting: "Brown Butter",
+                gooeyness: 4,
+                price: "$6.00",
+                notes: "Flaky laminated brioche layers with nutty brown butter glaze. Pairs unreal well with a flat white on a crisp Northern BC morning.",
+                createdAt: Date.now() - 86400000 * 2
+            },
+            {
+                id: 'sample-pg-3',
+                name: "Open Door Cafe",
+                reviewer: "Sam K.",
+                lat: 53.9129,
+                lng: -122.7534,
+                rating: 4,
+                frosting: "Classic Glaze",
+                gooeyness: 4,
+                price: "$4.75",
+                notes: "Old-school homemade comfort. Huge portion size with a sweet vanilla sugar glaze that seeps right into the center spiral.",
+                createdAt: Date.now() - 86400000 * 6
+            },
+            {
+                id: 'sample-pg-4',
+                name: "University Hill Bakehouse (UNBC)",
+                reviewer: "Jordan P.",
+                lat: 53.8926,
+                lng: -122.8124,
+                rating: 4,
+                frosting: "Maple",
+                gooeyness: 3,
+                price: "$5.50",
+                notes: "Baked fresh before morning lectures! Subtle real maple glaze with a hint of cardamom in the dough.",
+                createdAt: Date.now() - 86400000 * 1
+            },
+            {
+                id: 'sample-van-1',
+                name: "Grounds for Coffee (Commercial Dr)",
+                reviewer: "Alex R.",
+                lat: 49.2662,
+                lng: -123.0695,
+                rating: 5,
+                frosting: "Cream Cheese",
+                gooeyness: 5,
+                price: "$6.25",
+                notes: "Legendary Vancouver cinnamon buns served piping hot straight from the oven. The center bite is pure magic.",
+                createdAt: Date.now() - 86400000 * 10
+            },
+            {
+                id: 'sample-cal-1',
+                name: "Sidewalk Citizen Bakery",
+                reviewer: "Chris M.",
+                lat: 51.0475,
+                lng: -114.0487,
+                rating: 5,
+                frosting: "No Frosting",
+                gooeyness: 3,
+                price: "$5.75",
+                notes: "Sourdough-leavened morning bun crusted in caramelized cinnamon sugar. Crisp edges and tender interior—needs zero frosting.",
+                createdAt: Date.now() - 86400000 * 8
+            }
+        ];
+
+        // ==========================================
+        // 2. APPLICATION STATE
+        // ==========================================
+        let reviews = [...SAMPLE_REVIEWS];
+        let map = null;
+        let markersLayer = null;
+        let markerMap = {}; // id -> Leaflet marker
+        let tempMarker = null;
+        let isDropPinMode = false;
+        let activeReviewId = null;
+        let isSheetConnected = false;
+
+        // ==========================================
+        // 3. UI HELPER FUNCTIONS
+        // ==========================================
+        function showToast(message, icon = '🍥') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = document.getElementById('toast-icon');
+            msgEl.textContent = message;
+            iconEl.textContent = icon;
+            
+            toast.classList.remove('opacity-0', '-translate-y-2');
+            toast.classList.add('opacity-100', 'translate-y-0');
+
+            clearTimeout(window._toastTimeout);
+            window._toastTimeout = setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', '-translate-y-2');
+            }, 3400);
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function renderStars(rating) {
+            const full = Math.round(Number(rating) || 0);
+            return '★'.repeat(full) + '☆'.repeat(Math.max(0, 5 - full));
+        }
+
+        function renderGooeyDrops(level) {
+            const val = Math.min(5, Math.max(1, Number(level) || 3));
+            return '🍯'.repeat(val);
+        }
+
+        function timeAgo(timestamp) {
+            if (!timestamp) return 'Recently';
+            const seconds = Math.floor((Date.now() - timestamp) / 1000);
+            if (seconds < 60) return 'Just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            return `${days}d ago`;
+        }
+
+        function updateSyncBadge(connected, label) {
+            const badge = document.getElementById('sync-status');
+            const headerDot = document.getElementById('header-conn-dot');
+            const headerText = document.getElementById('header-conn-text');
+            const modalDot = document.getElementById('modal-status-dot');
+            const modalTitle = document.getElementById('modal-status-title');
+            const modalDesc = document.getElementById('modal-status-desc');
+            const refreshBtn = document.getElementById('btn-refresh-sheet');
+
+            if (connected) {
+                badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-600"></span><span class="text-emerald-800 font-semibold">${escapeHTML(label)}</span>`;
+                headerDot.className = "w-2 h-2 rounded-full bg-emerald-500";
+                headerText.textContent = "Live Sheet";
+                modalDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0";
+                modalTitle.textContent = "Connected to Google Sheets";
+                modalDesc.textContent = "Reviews are syncing live with your spreadsheet.";
+                refreshBtn.classList.remove('hidden');
+            } else {
+                badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500"></span><span class="text-cinnamon-700 font-medium">${escapeHTML(label)}</span>`;
+                headerDot.className = "w-2 h-2 rounded-full bg-amber-500";
+                headerText.textContent = "Connect Sheet";
+                modalDot.className = "w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0";
+                modalTitle.textContent = "Running in Demo Mode";
+                modalDesc.textContent = "Showing sample pins until a Google Apps Script URL is connected.";
+                refreshBtn.classList.add('hidden');
+            }
+        }
+
+        // ==========================================
+        // 4. LEAFLET MAP SETUP
+        // ==========================================
+        function initMap() {
+            // Centered on Prince George, BC by default
+            map = L.map('map', {
+                zoomControl: false
+            }).setView([53.9171, -122.7497], 13);
+
+            // Position zoom control top-right so it never overlaps mobile bottom drawer
+            L.control.zoom({ position: 'topright' }).addTo(map);
+
+            // Free OpenStreetMap CartoDB Voyager tiles (warm, clean, no API key needed)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+
+            markersLayer = L.layerGroup().addTo(map);
+
+            // Click anywhere on map to drop a pin & open review modal
+            map.on('click', (e) => {
+                const { lat, lng } = e.latlng;
+                exitDropPinMode();
+                placeTempPinAndOpenModal(lat, lng);
+            });
+        }
+
+        function createBunIcon(isActive = false) {
+            return L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div class="bun-marker ${isActive ? 'active' : ''}" style="width: 36px; height: 36px;">
+                        <span class="bun-marker-inner">🍥</span>
+                       </div>`,
+                iconSize: [36, 36],
+                iconAnchor: [18, 36],
+                popupAnchor: [0, -34]
+            });
+        }
+
+        function buildPopupHTML(review) {
+            const priceTag = review.price ? `<span class="bg-cream-200 text-cinnamon-800 font-bold px-2 py-0.5 rounded-full text-xs">${escapeHTML(review.price)}</span>` : '';
+            const reviewerLine = review.reviewer ? ` by <strong class="text-cinnamon-700">${escapeHTML(review.reviewer)}</strong>` : '';
+            return `
+                <div class="text-cinnamon-900">
+                    <div class="bg-gradient-to-r from-cream-100 to-cream-200 px-4 py-3 border-b border-cream-300">
+                        <div class="flex items-start justify-between gap-2 pr-4">
+                            <h3 class="font-serif font-bold text-base leading-snug text-cinnamon-900">${escapeHTML(review.name)}</h3>
+                        </div>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="text-amber-500 text-sm tracking-tight">${renderStars(review.rating)}</span>
+                            <span class="text-xs font-bold text-cinnamon-700">${Number(review.rating).toFixed(1)}</span>
+                            ${priceTag}
+                        </div>
+                    </div>
+                    <div class="p-4 space-y-2.5 bg-glaze">
+                        <div class="flex flex-wrap gap-1.5 text-[11px] font-semibold">
+                            <span class="bg-cinnamon-100 text-cinnamon-800 px-2.5 py-1 rounded-lg border border-cinnamon-200">
+                                🧁 ${escapeHTML(review.frosting)}
+                            </span>
+                            <span class="bg-amber-50 text-amber-900 px-2.5 py-1 rounded-lg border border-amber-200">
+                                Gooey: ${review.gooeyness}/5 ${renderGooeyDrops(review.gooeyness)}
+                            </span>
+                        </div>
+                        <p class="text-xs text-cinnamon-800 leading-relaxed italic">"${escapeHTML(review.notes)}"</p>
+                        <div class="text-[10px] text-cinnamon-500 pt-1 border-t border-cream-200 flex justify-between gap-2">
+                            <span>Added${reviewerLine} • ${timeAgo(review.createdAt)}</span>
+                            <span>${Number(review.lat).toFixed(3)}, ${Number(review.lng).toFixed(3)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ==========================================
+        // 5. RENDERING SIDEBAR & MAP MARKERS
+        // ==========================================
+        function getFilteredAndSortedReviews() {
+            const frostingFilter = document.getElementById('filter-frosting').value;
+            const sortBy = document.getElementById('sort-reviews').value;
+
+            let filtered = reviews.filter(r => {
+                if (frostingFilter === 'all') return true;
+                return r.frosting === frostingFilter;
+            });
+
+            filtered.sort((a, b) => {
+                if (sortBy === 'rating') {
+                    if (b.rating !== a.rating) return b.rating - a.rating;
+                    return (b.createdAt || 0) - (a.createdAt || 0);
+                } else if (sortBy === 'gooey') {
+                    if (b.gooeyness !== a.gooeyness) return b.gooeyness - a.gooeyness;
+                    return b.rating - a.rating;
+                } else {
+                    return (b.createdAt || 0) - (a.createdAt || 0);
+                }
+            });
+
+            return filtered;
+        }
+
+        function renderApp() {
+            const listContainer = document.getElementById('reviews-list');
+            const countLabel = document.getElementById('review-count');
+            const filtered = getFilteredAndSortedReviews();
+
+            countLabel.textContent = `${filtered.length} ${filtered.length === 1 ? 'bakery' : 'bakeries'} mapped`;
+
+            // Clear and rebuild map markers
+            markersLayer.clearLayers();
+            markerMap = {};
+
+            filtered.forEach(review => {
+                const isSelected = review.id === activeReviewId;
+                const marker = L.marker([review.lat, review.lng], {
+                    icon: createBunIcon(isSelected)
+                });
+
+                marker.bindPopup(buildPopupHTML(review), {
+                    maxWidth: 290,
+                    closeButton: true
+                });
+
+                marker.on('click', () => {
+                    highlightReviewCard(review.id, false);
+                });
+
+                marker.addTo(markersLayer);
+                markerMap[review.id] = marker;
+            });
+
+            // Build Sidebar Cards
+            if (filtered.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center py-10 px-4 bg-glaze rounded-2xl border border-dashed border-cream-300">
+                        <div class="text-3xl mb-2">🥐</div>
+                        <p class="font-serif font-bold text-cinnamon-900">No cinnamon buns match this filter</p>
+                        <p class="text-xs text-cinnamon-600 mt-1">Try selecting "All Frostings" or click the map to add a new spot!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            listContainer.innerHTML = filtered.map(review => {
+                const isSelected = review.id === activeReviewId;
+                return `
+                    <article data-id="${escapeHTML(review.id)}"
+                        class="review-card group cursor-pointer rounded-2xl p-3.5 transition-all border ${
+                            isSelected 
+                                ? 'bg-cream-200/70 border-cinnamon-500 shadow-md ring-1 ring-cinnamon-400' 
+                                : 'bg-glaze hover:bg-cream-100/80 border-cream-300/90 shadow-xs hover:shadow-md'
+                        }">
+                        <div class="flex items-start justify-between gap-2">
+                            <h3 class="font-serif font-bold text-base text-cinnamon-900 group-hover:text-cinnamon-700 transition leading-snug">
+                                ${escapeHTML(review.name)}
+                            </h3>
+                            ${review.price ? `<span class="shrink-0 text-xs font-bold bg-cream-200 text-cinnamon-800 px-2 py-0.5 rounded-full">${escapeHTML(review.price)}</span>` : ''}
+                        </div>
+
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="text-amber-500 text-sm leading-none">${renderStars(review.rating)}</span>
+                            <span class="text-xs font-bold text-cinnamon-800">${Number(review.rating).toFixed(1)}</span>
+                            <span class="text-cream-300">•</span>
+                            <span class="text-[11px] font-semibold text-cinnamon-700 bg-cream-200/60 px-2 py-0.5 rounded-md">
+                                ${escapeHTML(review.frosting)}
+                            </span>
+                        </div>
+
+                        <p class="text-xs text-cinnamon-800/90 mt-2 line-clamp-2 leading-relaxed">
+                            ${escapeHTML(review.notes)}
+                        </p>
+
+                        <div class="mt-2.5 pt-2 border-t border-cream-200/80 flex items-center justify-between text-[11px] text-cinnamon-600">
+                            <span class="font-medium">Gooeyness: <strong class="text-cinnamon-800">${review.gooeyness}/5</strong> ${renderGooeyDrops(review.gooeyness)}</span>
+                            <span>${review.reviewer ? escapeHTML(review.reviewer) + ' • ' : ''}${timeAgo(review.createdAt)}</span>
+                        </div>
+                    </article>
+                `;
+            }).join('');
+
+            // Attach click listeners to cards
+            document.querySelectorAll('.review-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const id = card.getAttribute('data-id');
+                    focusReviewOnMap(id);
+                });
+            });
+        }
+
+        function highlightReviewCard(id, scrollIntoView = true) {
+            activeReviewId = id;
+            document.querySelectorAll('.review-card').forEach(card => {
+                const isMatch = card.getAttribute('data-id') === id;
+                if (isMatch) {
+                    card.classList.remove('bg-glaze', 'border-cream-300/90');
+                    card.classList.add('bg-cream-200/70', 'border-cinnamon-500', 'shadow-md', 'ring-1', 'ring-cinnamon-400');
+                    if (scrollIntoView) {
+                        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                } else {
+                    card.classList.add('bg-glaze', 'border-cream-300/90');
+                    card.classList.remove('bg-cream-200/70', 'border-cinnamon-500', 'shadow-md', 'ring-1', 'ring-cinnamon-400');
+                }
+            });
+        }
+
+        function focusReviewOnMap(id) {
+            const review = reviews.find(r => r.id === id);
+            if (!review) return;
+
+            highlightReviewCard(id, false);
+            const marker = markerMap[id];
+            map.flyTo([review.lat, review.lng], 15, {
+                duration: 0.9
+            });
+
+            if (marker) {
+                setTimeout(() => {
+                    marker.openPopup();
+                }, 350);
+            }
+        }
+
+        // ==========================================
+        // 6. DROP PIN & REVIEW MODAL INTERACTIONS
+        // ==========================================
+        function enterDropPinMode() {
+            isDropPinMode = true;
+            document.getElementById('drop-mode-banner').classList.remove('hidden');
+            document.getElementById('map').style.cursor = 'crosshair';
+        }
+
+        function exitDropPinMode() {
+            isDropPinMode = false;
+            document.getElementById('drop-mode-banner').classList.add('hidden');
+            document.getElementById('map').style.cursor = '';
+        }
+
+        function placeTempPinAndOpenModal(lat, lng) {
+            if (tempMarker) {
+                map.removeLayer(tempMarker);
+            }
+
+            const tempIcon = L.divIcon({
+                className: 'temp-pin',
+                html: `<div class="temp-pin-icon text-3xl drop-shadow-md">📍</div>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 30]
+            });
+
+            tempMarker = L.marker([lat, lng], { icon: tempIcon }).addTo(map);
+
+            // Populate modal coordinates
+            document.getElementById('input-lat').value = lat.toFixed(6);
+            document.getElementById('input-lng').value = lng.toFixed(6);
+            document.getElementById('modal-coords-label').textContent = `📍 Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+            // Reset form fields to defaults
+            document.getElementById('input-name').value = '';
+            document.getElementById('input-reviewer').value = '';
+            document.getElementById('input-price').value = '';
+            document.getElementById('input-notes').value = '';
+            document.getElementById('input-frosting').value = 'Cream Cheese';
+            setStarRating(5);
+            setGooeyLevel(4);
+
+            document.getElementById('review-modal').classList.remove('hidden');
+            setTimeout(() => document.getElementById('input-name').focus(), 100);
+        }
+
+        function closeReviewModal() {
+            document.getElementById('review-modal').classList.add('hidden');
+            if (tempMarker) {
+                map.removeLayer(tempMarker);
+                tempMarker = null;
+            }
+        }
+
+        // Star rating interactive selector
+        const starDescriptions = {
+            1: "1 / 5 — Dry & disappointing",
+            2: "2 / 5 — Needs more cinnamon",
+            3: "3 / 5 — Solid neighborhood bun",
+            4: "4 / 5 — Worth a special trip",
+            5: "5 / 5 — Absolute bun perfection!"
+        };
+
+        function setStarRating(val) {
+            document.getElementById('input-rating').value = val;
+            document.getElementById('star-label').textContent = starDescriptions[val] || `${val} / 5`;
+            document.querySelectorAll('.star-btn').forEach(btn => {
+                const btnVal = Number(btn.getAttribute('data-val'));
+                btn.style.opacity = btnVal <= val ? '1' : '0.3';
+                btn.style.filter = btnVal <= val ? 'none' : 'grayscale(100%)';
+            });
+        }
+
+        // Gooeyness slider label updater
+        const gooeyDescriptions = {
+            1: "1/5 — Cakey & firm",
+            2: "2/5 — Lightly soft",
+            3: "3/5 — Classic tender swirl",
+            4: "4/5 — Melt-in-your-mouth",
+            5: "5/5 — Maximum sticky goo!"
+        };
+
+        function setGooeyLevel(val) {
+            document.getElementById('input-gooeyness').value = val;
+            document.getElementById('gooey-label').textContent = gooeyDescriptions[val] || `${val}/5`;
+        }
+
+        // ==========================================
+        // 7. GOOGLE SHEETS API PERSISTENCE
+        // ==========================================
+        async function fetchReviewsFromGoogleSheet(urlToTest = GOOGLE_SHEET_API_URL, isManualTest = false) {
+            const targetUrl = (urlToTest || '').trim();
+            if (!targetUrl) {
+                isSheetConnected = false;
+                reviews = [...SAMPLE_REVIEWS];
+                updateSyncBadge(false, "Demo Mode");
+                renderApp();
+                return false;
+            }
+
+            updateSyncBadge(false, "Syncing Sheet...");
+
+            try {
+                const response = await fetch(targetUrl, {
+                    method: 'GET',
+                    redirect: 'follow'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (!Array.isArray(data)) {
+                    throw new Error("Expected JSON array from Apps Script");
+                }
+
+                // Successfully connected!
+                GOOGLE_SHEET_API_URL = targetUrl;
+                localStorage.setItem(STORAGE_KEY_URL, targetUrl);
+                isSheetConnected = true;
+                updateSyncBadge(true, "Live Google Sheet");
+
+                const validRows = data
+                    .filter(item => item && item.name && !isNaN(Number(item.lat)) && !isNaN(Number(item.lng)))
+                    .map((item, idx) => ({
+                        id: String(item.id || `gs-row-${idx}`),
+                        name: String(item.name),
+                        reviewer: item.reviewer ? String(item.reviewer) : '',
+                        lat: Number(item.lat),
+                        lng: Number(item.lng),
+                        rating: Number(item.rating) || 5,
+                        frosting: String(item.frosting || 'Cream Cheese'),
+                        gooeyness: Number(item.gooeyness) || 4,
+                        price: item.price ? String(item.price) : '',
+                        notes: String(item.notes || ''),
+                        createdAt: Number(item.createdAt) || Date.now()
+                    }));
+
+                // If sheet is brand new and has 0 rows yet, keep sample pins visible so map isn't empty
+                if (validRows.length > 0) {
+                    reviews = validRows;
+                } else {
+                    reviews = [...SAMPLE_REVIEWS];
+                    if (isManualTest) {
+                        showToast("Connected! Sheet is empty—add your first bun!", "📊");
+                    }
+                }
+
+                renderApp();
+                return true;
+
+            } catch (err) {
+                console.warn("Google Sheet fetch failed, falling back to demo pins:", err);
+                isSheetConnected = false;
+                reviews = [...SAMPLE_REVIEWS];
+                updateSyncBadge(false, "Demo Mode");
+                renderApp();
+                if (isManualTest) {
+                    showToast("Could not connect. Check Web App URL & 'Anyone' access.", "⚠️");
+                }
+                return false;
+            }
+        }
+
+        async function saveNewReview(reviewData) {
+            const submitBtn = document.getElementById('submit-review-btn');
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-70');
+
+            const newId = 'bun-' + Date.now();
+            const record = {
+                id: newId,
+                ...reviewData
+            };
+
+            try {
+                if (isSheetConnected && GOOGLE_SHEET_API_URL) {
+                    // Use text/plain;charset=utf-8 to avoid CORS preflight OPTIONS issues with Google Apps Script
+                    const response = await fetch(GOOGLE_SHEET_API_URL, {
+                        method: 'POST',
+                        redirect: 'follow',
+                        headers: {
+                            'Content-Type': 'text/plain;charset=utf-8'
+                        },
+                        body: JSON.stringify(record)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`POST failed with HTTP ${response.status}`);
+                    }
+
+                    // Optimistically update local list immediately, then sync from sheet
+                    if (reviews.some(r => r.id.startsWith('sample-'))) {
+                        reviews = [record];
+                    } else {
+                        reviews.unshift(record);
+                    }
+                    activeReviewId = newId;
+                    renderApp();
+                    closeReviewModal();
+                    showToast(`Saved ${reviewData.name} to Google Sheets!`, '📊');
+
+                    // Background refresh to ensure consistency
+                    setTimeout(() => fetchReviewsFromGoogleSheet(GOOGLE_SHEET_API_URL, false), 1200);
+                } else {
+                    // Demo / Local session mode
+                    reviews.unshift(record);
+                    activeReviewId = newId;
+                    renderApp();
+                    closeReviewModal();
+                    showToast(`Added ${reviewData.name} (Demo Mode)`, '🍥');
+                }
+
+                setTimeout(() => {
+                    if (activeReviewId) focusReviewOnMap(activeReviewId);
+                }, 250);
+
+            } catch (error) {
+                console.error("Failed to save review to Google Sheet:", error);
+                // Fallback so user never loses their submission
+                reviews.unshift(record);
+                activeReviewId = newId;
+                renderApp();
+                closeReviewModal();
+                showToast("Saved locally (Sheet sync failed).", "🥐");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-70');
+            }
+        }
+
+        // ==========================================
+        // 8. SHEET SETUP MODAL HELPERS
+        // ==========================================
+        function openSheetModal() {
+            document.getElementById('input-sheet-url').value = GOOGLE_SHEET_API_URL || '';
+            document.getElementById('sheet-modal').classList.remove('hidden');
+        }
+
+        function closeSheetModal() {
+            document.getElementById('sheet-modal').classList.add('hidden');
+        }
+
+        // ==========================================
+        // 9. EVENT LISTENERS & INITIALIZATION
+        // ==========================================
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            renderApp();
+            fetchReviewsFromGoogleSheet(GOOGLE_SHEET_API_URL, false);
+
+            // Header "Add Review" button triggers drop-pin mode
+            document.getElementById('btn-add-review').addEventListener('click', () => {
+                enterDropPinMode();
+            });
+
+            // Sheet setup modal triggers
+            document.getElementById('btn-sheet-setup').addEventListener('click', openSheetModal);
+            document.getElementById('sync-status').addEventListener('click', openSheetModal);
+            document.getElementById('close-sheet-modal').addEventListener('click', closeSheetModal);
+            document.getElementById('btn-cancel-sheet').addEventListener('click', closeSheetModal);
+            document.getElementById('sheet-modal').addEventListener('click', (e) => {
+                if (e.target.id === 'sheet-modal') closeSheetModal();
+            });
+
+            // Copy Apps Script snippet using execCommand fallback for iFrame safety
+            document.getElementById('btn-copy-script').addEventListener('click', () => {
+                const codeText = document.getElementById('apps-script-code').textContent;
+                const tempTextarea = document.createElement('textarea');
+                tempTextarea.value = codeText;
+                tempTextarea.style.position = 'fixed';
+                tempTextarea.style.opacity = '0';
+                document.body.appendChild(tempTextarea);
+                tempTextarea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast("Apps Script copied to clipboard!", "📋");
+                } catch (err) {
+                    showToast("Select the code box and press Ctrl+C / Cmd+C.", "ℹ️");
+                }
+                document.body.removeChild(tempTextarea);
+            });
+
+            // Test & Save Google Sheet URL
+            document.getElementById('btn-save-sheet-url').addEventListener('click', async () => {
+                const urlInput = document.getElementById('input-sheet-url').value.trim();
+                if (!urlInput || !urlInput.startsWith('https://script.google.com/')) {
+                    showToast("Please enter a valid Google Apps Script /exec URL.", "⚠️");
+                    return;
+                }
+                const btn = document.getElementById('btn-save-sheet-url');
+                btn.disabled = true;
+                btn.classList.add('opacity-70');
+                const ok = await fetchReviewsFromGoogleSheet(urlInput, true);
+                btn.disabled = false;
+                btn.classList.remove('opacity-70');
+                if (ok) {
+                    showToast("Connected to Google Sheets!", "✅");
+                    closeSheetModal();
+                }
+            });
+
+            // Manual refresh button inside modal
+            document.getElementById('btn-refresh-sheet').addEventListener('click', async () => {
+                const ok = await fetchReviewsFromGoogleSheet(GOOGLE_SHEET_API_URL, true);
+                if (ok) showToast("Synced latest buns from Google Sheets!", "🔄");
+            });
+
+            // Reset to Demo Mode
+            document.getElementById('btn-disconnect-sheet').addEventListener('click', () => {
+                localStorage.removeItem(STORAGE_KEY_URL);
+                GOOGLE_SHEET_API_URL = DEFAULT_GOOGLE_SHEET_API_URL;
+                document.getElementById('input-sheet-url').value = '';
+                fetchReviewsFromGoogleSheet(GOOGLE_SHEET_API_URL, false);
+                showToast("Switched back to Demo Mode.", "🥐");
+            });
+
+            document.getElementById('cancel-drop-mode').addEventListener('click', () => {
+                exitDropPinMode();
+            });
+
+            // Filter & Sort listeners
+            document.getElementById('filter-frosting').addEventListener('change', renderApp);
+            document.getElementById('sort-reviews').addEventListener('change', renderApp);
+
+            // Quick city jump pills
+            document.querySelectorAll('.jump-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const lat = parseFloat(btn.getAttribute('data-lat'));
+                    const lng = parseFloat(btn.getAttribute('data-lng'));
+                    const zoom = parseInt(btn.getAttribute('data-zoom'), 10);
+                    map.flyTo([lat, lng], zoom, { duration: 1.1 });
+                });
+            });
+
+            // Star buttons
+            document.querySelectorAll('.star-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    setStarRating(Number(btn.getAttribute('data-val')));
+                });
+            });
+
+            // Gooeyness slider
+            document.getElementById('input-gooeyness').addEventListener('input', (e) => {
+                setGooeyLevel(Number(e.target.value));
+            });
+
+            // Modal close actions
+            document.getElementById('close-modal').addEventListener('click', closeReviewModal);
+            document.getElementById('cancel-modal-btn').addEventListener('click', closeReviewModal);
+            document.getElementById('review-modal').addEventListener('click', (e) => {
+                if (e.target.id === 'review-modal') closeReviewModal();
+            });
+
+            // Review Form Submission
+            document.getElementById('review-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const name = document.getElementById('input-name').value.trim();
+                const reviewer = document.getElementById('input-reviewer').value.trim();
+                const lat = parseFloat(document.getElementById('input-lat').value);
+                const lng = parseFloat(document.getElementById('input-lng').value);
+                const rating = Number(document.getElementById('input-rating').value);
+                const frosting = document.getElementById('input-frosting').value;
+                const gooeyness = Number(document.getElementById('input-gooeyness').value);
+                const price = document.getElementById('input-price').value.trim();
+                const notes = document.getElementById('input-notes').value.trim();
+
+                if (!name || !notes || isNaN(lat) || isNaN(lng)) {
+                    showToast("Please fill in the bakery name and tasting notes.", "⚠️");
+                    return;
+                }
+
+                await saveNewReview({
+                    name,
+                    reviewer,
+                    lat,
+                    lng,
+                    rating,
+                    frosting,
+                    gooeyness,
+                    price,
+                    notes,
+                    createdAt: Date.now()
+                });
+            });
+        });
+    </script>
+</body>
+</html>
